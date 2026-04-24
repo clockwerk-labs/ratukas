@@ -3,12 +3,19 @@ package ratukas
 import (
 	"container/heap"
 	"context"
-	"fmt"
 	"sync"
 	"time"
 )
 
 type (
+	Engine struct {
+		wheel     *TimingWheel
+		expiry    <-chan *Bucket
+		execution chan<- uint64
+		pq        PriorityQueue
+		pqMu      sync.Mutex
+	}
+
 	BucketItem struct {
 		bucket     *Bucket
 		expiration int64
@@ -16,13 +23,6 @@ type (
 	}
 
 	PriorityQueue []*BucketItem
-
-	Engine struct {
-		wheel  *TimingWheel
-		expiry <-chan *Bucket
-		pq     PriorityQueue
-		pqMu   sync.Mutex
-	}
 )
 
 func (pq *PriorityQueue) Len() int {
@@ -56,11 +56,12 @@ func (pq *PriorityQueue) Pop() any {
 	return item
 }
 
-func NewEngine(wheel *TimingWheel, expiry <-chan *Bucket) *Engine {
+func NewEngine(wheel *TimingWheel, expiry <-chan *Bucket, execution chan<- uint64) *Engine {
 	return &Engine{
-		wheel:  wheel,
-		pq:     make(PriorityQueue, 0),
-		expiry: expiry,
+		wheel:     wheel,
+		pq:        make(PriorityQueue, 0),
+		expiry:    expiry,
+		execution: execution,
 	}
 }
 
@@ -123,9 +124,8 @@ func (e *Engine) advance() {
 
 		heap.Pop(&e.pq)
 
-		tasks := item.bucket.Flush()
-		for _, id := range tasks {
-			fmt.Println(id)
+		for _, id := range item.bucket.Flush() {
+			e.execution <- id
 		}
 
 		e.wheel.AdvanceTime(item.expiration)
