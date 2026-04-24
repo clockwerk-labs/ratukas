@@ -23,7 +23,7 @@ func NewWheel(start time.Time, tick time.Duration, size int64, expiry chan<- *Bu
 		size:     size,
 		interval: tickNs * size,
 		expiry:   expiry,
-		buckets:  make([]*Bucket, 0, size),
+		buckets:  make([]*Bucket, size),
 	}
 
 	tw.now.Store(startNs - (startNs % tickNs))
