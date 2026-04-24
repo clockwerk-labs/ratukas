@@ -3,6 +3,7 @@ package ratukas
 import (
 	"container/heap"
 	"context"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -122,7 +123,10 @@ func (e *Engine) advance() {
 
 		heap.Pop(&e.pq)
 
-		item.bucket.Flush()
+		tasks := item.bucket.Flush()
+		for _, id := range tasks {
+			fmt.Println(id)
+		}
 
 		e.wheel.AdvanceTime(item.expiration)
 	}
