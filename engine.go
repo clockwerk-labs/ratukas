@@ -3,17 +3,20 @@ package ratukas
 import (
 	"container/heap"
 	"context"
+	"log/slog"
+	"math"
 	"sync"
 	"time"
 )
 
 type (
 	Engine struct {
-		wheel     *TimingWheel
-		expiry    <-chan *Bucket
-		execution chan<- uint64
-		pq        PriorityQueue
-		pqMu      sync.Mutex
+		wheel    *TimingWheel
+		registry *Registry
+		logger   *slog.Logger
+		expiry   <-chan *Bucket
+		pq       PriorityQueue
+		mu       sync.Mutex
 	}
 
 	BucketItem struct {
@@ -56,17 +59,27 @@ func (pq *PriorityQueue) Pop() any {
 	return item
 }
 
-func NewEngine(wheel *TimingWheel, expiry <-chan *Bucket, execution chan<- uint64) *Engine {
+func NewEngine(wheel *TimingWheel, registry *Registry, logger *slog.Logger, expiry <-chan *Bucket) *Engine {
 	return &Engine{
-		wheel:     wheel,
-		pq:        make(PriorityQueue, 0),
-		expiry:    expiry,
-		execution: execution,
+		wheel:    wheel,
+		registry: registry,
+		logger:   logger,
+		pq:       make(PriorityQueue, 0),
+		expiry:   expiry,
 	}
 }
 
-func (e *Engine) Start(ctx context.Context) {
-	timer := time.NewTimer(time.Hour)
+func (e *Engine) AddTask(key uint64, task *Task) {
+	e.registry.PutTask(key, task)
+	e.wheel.Add(key, task)
+}
+
+func (e *Engine) RemoveTask(key uint64) {
+	e.registry.DeleteTask(key)
+}
+
+func (e *Engine) Run(ctx context.Context) {
+	timer := time.NewTimer(math.MaxInt)
 	defer timer.Stop()
 
 	for {
@@ -84,8 +97,8 @@ func (e *Engine) Start(ctx context.Context) {
 }
 
 func (e *Engine) resetTimer(t *time.Timer) {
-	e.pqMu.Lock()
-	defer e.pqMu.Unlock()
+	e.mu.Lock()
+	defer e.mu.Unlock()
 
 	if len(e.pq) == 0 {
 		return
@@ -100,8 +113,8 @@ func (e *Engine) resetTimer(t *time.Timer) {
 }
 
 func (e *Engine) schedule(b *Bucket) {
-	e.pqMu.Lock()
-	defer e.pqMu.Unlock()
+	e.mu.Lock()
+	defer e.mu.Unlock()
 
 	heap.Push(&e.pq, &BucketItem{
 		bucket:     b,
@@ -110,8 +123,8 @@ func (e *Engine) schedule(b *Bucket) {
 }
 
 func (e *Engine) advance() {
-	e.pqMu.Lock()
-	defer e.pqMu.Unlock()
+	e.mu.Lock()
+	defer e.mu.Unlock()
 
 	now := time.Now().UnixMilli()
 
@@ -124,8 +137,12 @@ func (e *Engine) advance() {
 
 		heap.Pop(&e.pq)
 
-		for _, id := range item.bucket.Flush() {
-			e.execution <- id
+		for _, key := range item.bucket.Flush() {
+			if task, err := e.registry.GetTask(key); err != nil {
+				e.logger.Error("Failed to get task from registry", "key", key, "err", err)
+			} else {
+				task.callback()
+			}
 		}
 
 		e.wheel.AdvanceTime(item.expiration)

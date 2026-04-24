@@ -16,17 +16,17 @@ type TimingWheel struct {
 }
 
 func NewTimingWheel(start time.Time, tick time.Duration, size int64, expiry chan<- *Bucket) *TimingWheel {
-	startNs, tickNs := start.UnixMilli(), tick.Milliseconds()
+	startMs, tickMs := start.UnixMilli(), tick.Milliseconds()
 
 	tw := &TimingWheel{
-		tick:     tickNs,
+		tick:     tickMs,
 		size:     size,
-		interval: tickNs * size,
+		interval: tickMs * size,
 		expiry:   expiry,
 		buckets:  make([]*Bucket, size),
 	}
 
-	tw.now.Store(startNs - (startNs % tickNs))
+	tw.now.Store(startMs - (startMs % tickMs))
 
 	for i := range tw.buckets {
 		tw.buckets[i] = NewBucket()
@@ -35,7 +35,7 @@ func NewTimingWheel(start time.Time, tick time.Duration, size int64, expiry chan
 	return tw
 }
 
-func (w *TimingWheel) Add(task *Task) bool {
+func (w *TimingWheel) Add(key uint64, task *Task) bool {
 	now := w.now.Load()
 
 	if task.expiration < now+w.tick {
@@ -45,7 +45,7 @@ func (w *TimingWheel) Add(task *Task) bool {
 	if task.expiration < now+w.interval {
 		slot := task.expiration / w.tick
 		bucket := w.buckets[slot%w.size]
-		bucket.Add(task)
+		bucket.Add(key)
 		if bucket.ExpireIn(slot * w.tick) {
 			w.expiry <- bucket
 		}
@@ -55,7 +55,7 @@ func (w *TimingWheel) Add(task *Task) bool {
 
 	overflow := w.ascend()
 
-	return overflow.Add(task)
+	return overflow.Add(key, task)
 }
 
 func (w *TimingWheel) AdvanceTime(expiration int64) {

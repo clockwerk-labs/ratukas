@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
+	"math/rand"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -13,41 +16,31 @@ import (
 func main() {
 	log.Println("Running example simulation")
 
-	task1 := ratukas.NewTask(1, time.Now().Add(5*time.Second), func() {
-		log.Println("Running task 1")
-	})
-	task2 := ratukas.NewTask(2, time.Now().Add(15*time.Second), func() {
-		log.Println("Running task 2")
-	})
-
-	registry := make(map[uint64]*ratukas.Task)
-	registry[task1.ID()] = task1
-	registry[task2.ID()] = task2
-
 	expiry := make(chan *ratukas.Bucket)
 	defer close(expiry)
 
-	wheel := ratukas.NewTimingWheel(time.Now(), 100*time.Millisecond, 60, expiry)
-
-	execution := make(chan uint64)
-	defer close(execution)
+	engine := ratukas.NewEngine(
+		ratukas.NewTimingWheel(time.Now(), 100*time.Millisecond, 16192, expiry),
+		ratukas.NewRegistry(1024),
+		slog.New(slog.NewJSONHandler(os.Stdout, nil)),
+		expiry,
+	)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	engine := ratukas.NewEngine(wheel, expiry, execution)
-	go engine.Start(ctx)
+	go engine.Run(ctx)
 
-	wheel.Add(task1)
-	wheel.Add(task2)
+	for i := 0; i < 100_000_000; i++ {
+		now := time.Now()
+		expiration := now.Add(time.Duration(rand.Intn(91)+10) * time.Second)
 
-	go func() {
-		for id := range execution {
-			if task, ok := registry[id]; ok {
-				task.Execute()
-			}
-		}
-	}()
+		engine.AddTask(uint64(i)+1, ratukas.NewTask(expiration, func() {
+			log.Printf("Running task %d, expiration %d, delay: %d", i+1, expiration.UnixMilli(), time.Now().Sub(now).Milliseconds())
+		}))
+	}
+
+	log.Println("All tasks added")
 
 	<-ctx.Done()
 }
