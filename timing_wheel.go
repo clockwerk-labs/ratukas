@@ -15,7 +15,7 @@ type TimingWheel struct {
 	overflow atomic.Pointer[TimingWheel]
 }
 
-func NewWheel(start time.Time, tick time.Duration, size int64, expiry chan<- *Bucket) *TimingWheel {
+func NewTimingWheel(start time.Time, tick time.Duration, size int64, expiry chan<- *Bucket) *TimingWheel {
 	startNs, tickNs := start.UnixMilli(), tick.Milliseconds()
 
 	tw := &TimingWheel{
@@ -83,7 +83,7 @@ func (w *TimingWheel) ascend() *TimingWheel {
 		return v
 	}
 
-	overflow := NewWheel(
+	overflow := NewTimingWheel(
 		time.UnixMilli(w.now.Load()),
 		time.Duration(w.interval)*time.Millisecond,
 		w.size,

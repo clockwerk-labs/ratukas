@@ -7,13 +7,13 @@ import (
 
 type Bucket struct {
 	expiration atomic.Int64
-	tasks      []*Task
+	tasks      []uint64
 	mu         sync.Mutex
 }
 
 func NewBucket() *Bucket {
 	b := &Bucket{
-		tasks: make([]*Task, 0, 16),
+		tasks: make([]uint64, 0, 16),
 	}
 
 	b.expiration.Store(-1)
@@ -33,43 +33,16 @@ func (b *Bucket) Add(task *Task) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	task.index = len(b.tasks)
-	task.bucket = b
-	b.tasks = append(b.tasks, task)
+	b.tasks = append(b.tasks, task.id)
 }
 
-func (b *Bucket) Remove(task *Task) {
+func (b *Bucket) Flush() []uint64 {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if task.bucket != b || task.index < 0 || task.index >= len(b.tasks) {
-		return
-	}
-
-	lastIdx := len(b.tasks) - 1
-
-	if task.index < lastIdx {
-		lastTask := b.tasks[lastIdx]
-		b.tasks[task.index] = lastTask
-		lastTask.index = task.index
-	}
-
-	b.tasks[lastIdx] = nil
-	b.tasks = b.tasks[:lastIdx]
-
-	task.index = -1
-	task.bucket = nil
-}
-
-func (b *Bucket) Flush() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	for _, task := range b.tasks {
-		task.index = -1
-		task.bucket = nil
-	}
-
-	b.tasks = make([]*Task, 0)
+	ts := b.tasks
+	b.tasks = make([]uint64, 0, 16)
 	b.expiration.Store(-1)
+
+	return ts
 }

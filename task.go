@@ -1,20 +1,27 @@
 package ratukas
 
 import (
+	"sync/atomic"
 	"time"
 )
 
 type Task struct {
-	id         [16]byte
+	id         uint64
 	expiration int64
-	index      int
-	bucket     *Bucket
+	cancelled  atomic.Bool
 }
 
-func NewTask(id [16]byte, expiration time.Time) *Task {
+func NewTask(id uint64, expiration time.Time) *Task {
 	return &Task{
 		id:         id,
 		expiration: expiration.UnixMilli(),
-		index:      -1,
 	}
+}
+
+func (t *Task) Cancel() {
+	t.cancelled.Store(true)
+}
+
+func (t *Task) IsCancelled() bool {
+	return t.cancelled.Load()
 }
