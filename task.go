@@ -4,14 +4,14 @@ import (
 	"time"
 )
 
-type Task struct {
+type Task[T any] struct {
 	expiration int64
-	callback   func()
+	value      T
 }
 
-func NewTask(expiration time.Time, callback func()) *Task {
-	return &Task{
+func NewTask[T any](expiration time.Time, value T) *Task[T] {
+	return &Task[T]{
 		expiration: expiration.UnixMilli(),
-		callback:   callback,
+		value:      value,
 	}
 }

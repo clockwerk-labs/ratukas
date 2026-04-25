@@ -35,15 +35,15 @@ func NewTimingWheel(start time.Time, tick time.Duration, size int64, expiry chan
 	return tw
 }
 
-func (w *TimingWheel) Add(key uint64, task *Task) bool {
+func (w *TimingWheel) Add(key uint64, expiration int64) bool {
 	now := w.now.Load()
 
-	if task.expiration < now+w.tick {
+	if expiration < now+w.tick {
 		return false
 	}
 
-	if task.expiration < now+w.interval {
-		slot := task.expiration / w.tick
+	if expiration < now+w.interval {
+		slot := expiration / w.tick
 		bucket := w.buckets[slot%w.size]
 		bucket.Add(key)
 		if bucket.ExpireIn(slot * w.tick) {
@@ -55,7 +55,7 @@ func (w *TimingWheel) Add(key uint64, task *Task) bool {
 
 	overflow := w.ascend()
 
-	return overflow.Add(key, task)
+	return overflow.Add(key, expiration)
 }
 
 func (w *TimingWheel) AdvanceTime(expiration int64) {

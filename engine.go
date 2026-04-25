@@ -10,9 +10,9 @@ import (
 )
 
 type (
-	Engine struct {
+	Engine[T any] struct {
 		wheel    *TimingWheel
-		registry *Registry
+		registry *Registry[T]
 		logger   *slog.Logger
 		expiry   <-chan *Bucket
 		pq       PriorityQueue
@@ -59,8 +59,8 @@ func (pq *PriorityQueue) Pop() any {
 	return item
 }
 
-func NewEngine(wheel *TimingWheel, registry *Registry, logger *slog.Logger, expiry <-chan *Bucket) *Engine {
-	return &Engine{
+func NewEngine[T any](wheel *TimingWheel, registry *Registry[T], logger *slog.Logger, expiry <-chan *Bucket) *Engine[T] {
+	return &Engine[T]{
 		wheel:    wheel,
 		registry: registry,
 		logger:   logger,
@@ -69,16 +69,16 @@ func NewEngine(wheel *TimingWheel, registry *Registry, logger *slog.Logger, expi
 	}
 }
 
-func (e *Engine) AddTask(key uint64, task *Task) {
+func (e *Engine[T]) AddTask(key uint64, task *Task[T]) {
 	e.registry.PutTask(key, task)
-	e.wheel.Add(key, task)
+	e.wheel.Add(key, task.expiration)
 }
 
-func (e *Engine) RemoveTask(key uint64) {
+func (e *Engine[T]) RemoveTask(key uint64) {
 	e.registry.DeleteTask(key)
 }
 
-func (e *Engine) Run(ctx context.Context) {
+func (e *Engine[T]) Run(ctx context.Context) {
 	timer := time.NewTimer(math.MaxInt)
 	defer timer.Stop()
 
@@ -96,7 +96,7 @@ func (e *Engine) Run(ctx context.Context) {
 	}
 }
 
-func (e *Engine) resetTimer(t *time.Timer) {
+func (e *Engine[T]) resetTimer(t *time.Timer) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -112,7 +112,7 @@ func (e *Engine) resetTimer(t *time.Timer) {
 	t.Reset(time.Duration(diff) * time.Millisecond)
 }
 
-func (e *Engine) schedule(b *Bucket) {
+func (e *Engine[T]) schedule(b *Bucket) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -122,7 +122,7 @@ func (e *Engine) schedule(b *Bucket) {
 	})
 }
 
-func (e *Engine) advance() {
+func (e *Engine[T]) advance() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
