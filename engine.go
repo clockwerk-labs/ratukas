@@ -15,41 +15,42 @@ type (
 		registry *Registry[T]
 		logger   *slog.Logger
 		expiry   <-chan *Bucket
-		pq       PriorityQueue
+		out      chan<- T
+		pq       priorityQueue
 		mu       sync.Mutex
 	}
 
-	BucketItem struct {
+	bucketItem struct {
 		bucket     *Bucket
 		expiration int64
 		index      int
 	}
 
-	PriorityQueue []*BucketItem
+	priorityQueue []*bucketItem
 )
 
-func (pq *PriorityQueue) Len() int {
+func (pq *priorityQueue) Len() int {
 	return len(*pq)
 }
 
-func (pq *PriorityQueue) Less(i, j int) bool {
+func (pq *priorityQueue) Less(i, j int) bool {
 	return (*pq)[i].expiration < (*pq)[j].expiration
 }
 
-func (pq *PriorityQueue) Swap(i, j int) {
+func (pq *priorityQueue) Swap(i, j int) {
 	(*pq)[i], (*pq)[j] = (*pq)[j], (*pq)[i]
 	(*pq)[i].index = i
 	(*pq)[j].index = j
 }
 
-func (pq *PriorityQueue) Push(x any) {
+func (pq *priorityQueue) Push(x any) {
 	n := len(*pq)
-	item := x.(*BucketItem)
+	item := x.(*bucketItem)
 	item.index = n
 	*pq = append(*pq, item)
 }
 
-func (pq *PriorityQueue) Pop() any {
+func (pq *priorityQueue) Pop() any {
 	old := *pq
 	n := len(old)
 	item := old[n-1]
@@ -59,13 +60,23 @@ func (pq *PriorityQueue) Pop() any {
 	return item
 }
 
-func NewEngine[T any](wheel *TimingWheel, registry *Registry[T], logger *slog.Logger, expiry <-chan *Bucket) *Engine[T] {
+func NewEngine[T any](
+	start time.Time,
+	tick time.Duration,
+	wheelSize int64,
+	registry *Registry[T],
+	logger *slog.Logger,
+	out chan<- T,
+) *Engine[T] {
+	expiry := make(chan *Bucket)
+
 	return &Engine[T]{
-		wheel:    wheel,
+		wheel:    NewTimingWheel(start, tick, wheelSize, expiry),
 		registry: registry,
 		logger:   logger,
-		pq:       make(PriorityQueue, 0),
 		expiry:   expiry,
+		out:      out,
+		pq:       make(priorityQueue, 0),
 	}
 }
 
@@ -116,7 +127,7 @@ func (e *Engine[T]) schedule(b *Bucket) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	heap.Push(&e.pq, &BucketItem{
+	heap.Push(&e.pq, &bucketItem{
 		bucket:     b,
 		expiration: b.Expiration(),
 	})
@@ -141,7 +152,7 @@ func (e *Engine[T]) advance() {
 			if task, err := e.registry.GetTask(key); err != nil {
 				e.logger.Error("Failed to get task from registry", "key", key, "err", err)
 			} else {
-				task.callback()
+				e.out <- task.value
 			}
 		}
 
